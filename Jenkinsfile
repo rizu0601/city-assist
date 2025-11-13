@@ -59,7 +59,7 @@ pipeline {
             }
         }
 
-        stage('Copy Compose If Changed') {
+        stage('Copy docker-compose.yml If Changed') {
             steps {
                 script {
                     def changed = sh(
@@ -68,17 +68,20 @@ pipeline {
                     ).trim()
 
                     if (changed) {
-                        echo "docker-compose.yml CHANGED — copying to EC2"
-                        withCredentials([sshUserPrivateKey(
-                            credentialsId: 'ansible-ssh-key',
-                            keyFileVariable: 'SSH_KEY'
-                        )]) {
+                        echo "docker-compose.yml changed → Copying to EC2"
+
+                        withCredentials([
+                            sshUserPrivateKey(
+                                credentialsId: 'ansible-ssh-key',
+                                keyFileVariable: 'SSH_KEY'
+                            )
+                        ]) {
                             sh """
                                 scp -o StrictHostKeyChecking=no -i $SSH_KEY docker-compose.yml $SSH_HOST:$DEPLOY_PATH/
                             """
                         }
                     } else {
-                        echo "docker-compose.yml NOT changed — skipping copy"
+                        echo "docker-compose.yml not changed → Skipping copy"
                     }
                 }
             }
@@ -87,6 +90,7 @@ pipeline {
         stage('Deploy to EC2') {
             steps {
                 script {
+
                     withCredentials([
                         sshUserPrivateKey(
                             credentialsId: 'ansible-ssh-key',
@@ -97,10 +101,19 @@ pipeline {
                         sh """
                             ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_HOST '
                                 cd $DEPLOY_PATH &&
-                                export TAG=$TAG &&
-                                docker-compose pull &&
-                                docker-compose up -d --force-recreate &&
-                                docker system prune -f
+
+                                echo "🔻 Stopping old containers..."
+                                docker-compose down || true
+
+                                echo "📥 Pulling new images..."
+                                export TAG=$TAG
+                                docker-compose pull
+
+                                echo "🚀 Starting new containers..."
+                                docker-compose up -d --force-recreate
+
+                                echo "🧹 Cleaning unused Docker data..."
+                                docker system prune -a -f --volumes
                             '
                         """
                     }
@@ -111,7 +124,7 @@ pipeline {
 
     post {
         success {
-            echo "🚀 Deployment Successful! Version: $TAG deployed."
+            echo "✅ Deployment Successful! Version: $TAG"
         }
         failure {
             echo "❌ Build or Deployment Failed!"
