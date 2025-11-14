@@ -43,7 +43,7 @@ pipeline {
                             passwordVariable: 'DOCKER_PASS'
                         )
                     ]) {
-                        sh """
+                        sh '''
                             echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
 
                             docker build -t $REGISTRY/$BACKEND_IMAGE:$TAG backend/
@@ -53,7 +53,7 @@ pipeline {
                             docker push $REGISTRY/$BACKEND_IMAGE:$TAG
                             docker push $REGISTRY/$FRONTEND_IMAGE:$TAG
                             docker push $REGISTRY/$PYTHON_IMAGE:$TAG
-                        """
+                        '''
                     }
                 }
             }
@@ -75,9 +75,9 @@ pipeline {
                             keyFileVariable: 'SSH_KEY'
                         )]) {
 
-                            sh """
+                            sh '''
                                 scp -o StrictHostKeyChecking=no -i $SSH_KEY docker-compose.yml $SSH_HOST:$DEPLOY_PATH/
-                            """
+                            '''
                         }
                     } else {
                         echo "docker-compose.yml not changed → Skipping copy"
@@ -98,54 +98,51 @@ pipeline {
 
                         try {
 
-                            // MAIN DEPLOYMENT
-                            sh """
+                            sh '''
                                 ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_HOST '
-                                    
                                     echo "📌 Saving previous TAG..."
                                     PREV_TAG="unknown"
                                     if [ -f $TAG_FILE ]; then
                                         PREV_TAG=$(cat $TAG_FILE)
                                     fi
-                                    echo "Previous Tag: \$PREV_TAG"
+                                    echo "Previous Tag: $PREV_TAG"
 
                                     echo "🔻 Stopping old containers..."
                                     docker-compose down || true
 
-                                    echo "📥 Pulling new images with TAG: $TAG..."
-                                    export TAG=$TAG
+                                    echo "📥 Pulling new images with TAG: '"$TAG"'..."
+                                    export TAG='"$TAG"'
                                     docker-compose pull
 
                                     echo "🚀 Starting new containers..."
                                     docker-compose up -d --force-recreate
 
                                     echo "💾 Saving new TAG to file..."
-                                    echo "$TAG" > $TAG_FILE
+                                    echo '"$TAG"' > $TAG_FILE
 
                                     echo "🧹 Cleaning unused Docker data..."
                                     docker system prune -a -f --volumes
                                 '
-                            """
+                            '''
 
                         } catch (Exception e) {
 
                             echo "❌ Deployment FAILED — Running Rollback!"
 
-                            // ROLLBACK
-                            sh """
+                            sh '''
                                 ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_HOST '
                                     if [ -f $TAG_FILE ]; then
                                         ROLLBACK_TAG=$(cat $TAG_FILE)
-                                        echo "Rolling back to previous version: \$ROLLBACK_TAG"
+                                        echo "Rolling back to previous version: $ROLLBACK_TAG"
 
-                                        export TAG=\$ROLLBACK_TAG
+                                        export TAG=$ROLLBACK_TAG
                                         docker-compose pull
                                         docker-compose up -d --force-recreate
                                     else
                                         echo "⚠️ No previous TAG found — rollback not possible"
                                     fi
                                 '
-                            """
+                            '''
 
                             throw e
                         }
