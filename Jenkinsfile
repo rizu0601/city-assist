@@ -12,7 +12,7 @@ pipeline {
         FRONTEND_IMAGE = 'hack-frontend'
         PYTHON_IMAGE   = 'hack-python'
         TAG            = "${env.BUILD_NUMBER}"
-        SSH_HOST       = 'ubuntu@172.31.17.237'
+        SSH_HOST       = 'ubuntu@172.31.16.10'
         DEPLOY_PATH    = '/home/ubuntu/Hackathon'
         TAG_FILE       = '/home/ubuntu/Hackathon/.last_successful_tag'
     }
