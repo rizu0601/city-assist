@@ -2,19 +2,15 @@ version: "3.9"
 
 services:
   frontend:
-    image: docker.io/swapnilneo/hack-frontend:${TAG}
+    build:
+      context: ./frontend
+    image: hack-frontend:latest
     ports:
       - "8081:80"
-    restart: always
     environment:
       BACKEND_URL: http://backend:8080
       VITE_API_URL: /api
-      CITYASSIST_API_API_URL: http://python:8000
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      CITYASSIST_API_URL: http://python:8000
     depends_on:
       - backend
       - python
@@ -22,36 +18,28 @@ services:
       - appnet
 
   backend:
-    image: docker.io/swapnilneo/hack-backend:${TAG}
-    ports:
-      - "8080:8080"
-    restart: always
+    build:
+      context: ./backend
+    image: hack-backend:latest
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/hackdb
       DB_USERNAME: postgres
       DB_PASSWORD: postgres
       PYTHON_URL: http://python:8000
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     depends_on:
       - postgres
       - python
+    ports:
+      - "8080:8080"
     networks:
       - appnet
 
   python:
-    image: docker.io/swapnilneo/hack-python:${TAG}
+    build:
+      context: ./python
+    image: hack-python:latest
     ports:
       - "8000:8000"
-    restart: always
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - appnet
 
