@@ -7,16 +7,8 @@ pipeline {
     }
 
     environment {
-        REGISTRY       = 'docker.io/swapnilneo'
-        BACKEND_IMAGE  = 'hack-backend'
-        FRONTEND_IMAGE = 'hack-frontend'
-        PYTHON_IMAGE   = 'hack-python'
-
-        TAG            = "${env.BUILD_NUMBER}"
-
-        SSH_HOST       = 'ubuntu@172.31.16.10'
-        DEPLOY_PATH    = '/home/ubuntu/Hackathon'
-        TAG_FILE       = '/home/ubuntu/Hackathon/.last_successful_tag'
+        SSH_HOST    = "ubuntu@172.31.16.10"
+        DEPLOY_PATH = "/home/ubuntu/Hackathon"
     }
 
     stages {
@@ -35,34 +27,17 @@ pipeline {
             }
         }
 
-        stage('Build & Push Docker Images') {
+        stage('Build Docker Images Locally') {
             steps {
-                script {
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: 'docker-hub-creds',
-                            usernameVariable: 'DOCKER_USER',
-                            passwordVariable: 'DOCKER_PASS'
-                        )
-                    ]) {
-
-                        sh '''
-                            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-
-                            docker build -t $REGISTRY/$BACKEND_IMAGE:$TAG backend/
-                            docker build -t $REGISTRY/$FRONTEND_IMAGE:$TAG frontend/
-                            docker build -t $REGISTRY/$PYTHON_IMAGE:$TAG python/
-
-                            docker push $REGISTRY/$BACKEND_IMAGE:$TAG
-                            docker push $REGISTRY/$FRONTEND_IMAGE:$TAG
-                            docker push $REGISTRY/$PYTHON_IMAGE:$TAG
-                        '''
-                    }
-                }
+                sh """
+                    docker build -t hack-backend:latest backend/
+                    docker build -t hack-frontend:latest frontend/
+                    docker build -t hack-python:latest python/
+                """
             }
         }
 
-        stage('Copy docker-compose.yml to EC2') {
+        stage('Copy Files to EC2') {
             steps {
                 script {
                     withCredentials([sshUserPrivateKey(
@@ -70,16 +45,16 @@ pipeline {
                         keyFileVariable: 'SSH_KEY'
                     )]) {
 
-                        sh '''
-                            echo "📤 Copying docker-compose.yml to EC2..."
+                        sh """
+                            echo "📤 Copying docker-compose.yml to server..."
                             scp -o StrictHostKeyChecking=no -i $SSH_KEY docker-compose.yml $SSH_HOST:$DEPLOY_PATH/
-                        '''
+                        """
                     }
                 }
             }
         }
 
-        stage('Deploy to EC2 with Rollback') {
+        stage('Deploy on Same Server') {
             steps {
                 script {
                     withCredentials([sshUserPrivateKey(
@@ -87,65 +62,20 @@ pipeline {
                         keyFileVariable: 'SSH_KEY'
                     )]) {
 
-                        try {
+                        sh """
+                            ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_HOST '
+                                cd $DEPLOY_PATH
 
-                            // MAIN DEPLOY
-                            sh '''
-                                ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_HOST '
-                                    
-                                    echo "📌 Loading previous tag..."
-                                    PREV_TAG="none"
-                                    if [ -f $TAG_FILE ]; then
-                                        PREV_TAG=$(cat $TAG_FILE)
-                                    fi
+                                echo "🔻 Stopping old containers"
+                                docker-compose down || true
 
-                                    echo "Previous Tag: $PREV_TAG"
+                                echo "🚀 Starting new containers"
+                                docker-compose up -d --build --force-recreate
 
-                                    cd '"$DEPLOY_PATH"'
-
-                                    echo "🔻 Stopping current containers"
-                                    docker-compose down || true
-
-                                    echo "📥 Pulling images for TAG: '"$TAG"'"
-                                    export TAG='"$TAG"'
-                                    docker-compose pull
-
-                                    echo "🚀 Starting new version"
-                                    docker-compose up -d --force-recreate
-
-                                    echo "💾 Saving new tag"
-                                    echo '"$TAG"' > $TAG_FILE
-
-                                    echo "🧹 Cleaning unused Docker images"
-                                    docker system prune -a -f
-                                '
-                            '''
-
-                        } catch (Exception e) {
-
-                            echo "❌ Deployment failed — Performing rollback!"
-
-                            // ROLLBACK
-                            sh '''
-                                ssh -o StrictHostKeyChecking=no -i $SSH_KEY $SSH_HOST '
-
-                                    if [ -f $TAG_FILE ]; then
-                                        ROLLBACK_TAG=$(cat $TAG_FILE)
-                                        echo "Rolling back to: $ROLLBACK_TAG"
-
-                                        export TAG=$ROLLBACK_TAG
-                                        cd '"$DEPLOY_PATH"'
-                                        docker-compose pull
-                                        docker-compose up -d --force-recreate
-
-                                    else
-                                        echo "⚠️ No previous version to roll back to!"
-                                    fi
-                                '
-                            '''
-
-                            throw e
-                        }
+                                echo "🧹 Cleaning unused images"
+                                docker system prune -a -f
+                            '
+                        """
                     }
                 }
             }
@@ -153,11 +83,7 @@ pipeline {
     }
 
     post {
-        success {
-            echo "✅ Deployment Successful! Version: $TAG"
-        }
-        failure {
-            echo "❌ Deployment Failed — rollback executed (if possible)"
-        }
+        success { echo "✅ Deployment successful!" }
+        failure { echo "❌ Deployment failed!" }
     }
 }
